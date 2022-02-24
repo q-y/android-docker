@@ -1,59 +1,46 @@
-FROM openjdk:8
-# set default build arguments
-ARG SDK_VERSION=sdk-tools-linux-4333796.zip
-ARG ANDROID_BUILD_VERSION=28
-ARG ANDROID_TOOLS_VERSION=28.0.3
-ARG NDK_VERSION=17c
+FROM openjdk:8-jdk
 
-# set default environment variables
-ENV ADB_INSTALL_TIMEOUT=60
-ENV ANDROID_HOME=/opt/android
-ENV ANDROID_SDK_HOME=${ANDROID_HOME}
-ENV PATH=${PATH}:${ANDROID_HOME}/emulator:${ANDROID_HOME}/tools:${ANDROID_HOME}/tools/bin:${ANDROID_HOME}/platform-tools
-ENV ANDROID_NDK=/opt/ndk/android-ndk-r$NDK_VERSION
-ENV ANDROID_NDK_HOME=/opt/ndk/android-ndk-r$NDK_VERSION
-ENV PATH=${PATH}:${ANDROID_NDK}
+ENV SDK_HOME /usr/local
 
-# install system dependencies
-RUN apt-get update -qq && apt-get install -qq -y --no-install-recommends \
-        apt-transport-https \
-        curl \
-        file \
-        git \
-        gnupg2 \
-        openjdk-8-jre \
-        python \
-        unzip \
-    && rm -rf /var/lib/apt/lists/*;
+RUN apt-get --quiet update --yes
+RUN apt-get --quiet install --yes wget tar unzip lib32stdc++6 lib32z1
+RUN apt-get --quiet install --yes libqt5widgets5 usbutils
 
-# install nodejs and yarn packages from nodesource and yarn apt sources
-RUN echo "deb https://deb.nodesource.com/node_12.x stretch main" > /etc/apt/sources.list.d/nodesource.list \
-    && echo "deb https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list \
-    && curl -sS https://deb.nodesource.com/gpgkey/nodesource.gpg.key | apt-key add - \
-    && curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
-    && apt-get update -qq \
-    && apt-get install -qq -y --no-install-recommends nodejs yarn \
-    && rm -rf /var/lib/apt/lists/*
+# Gradle
+ENV GRADLE_VERSION 7.0.4
+ENV GRADLE_SDK_URL https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip
+RUN curl -sSL "${GRADLE_SDK_URL}" -o gradle-${GRADLE_VERSION}-bin.zip  \
+	&& unzip gradle-${GRADLE_VERSION}-bin.zip -d ${SDK_HOME}  \
+	&& rm -rf gradle-${GRADLE_VERSION}-bin.zip
+ENV GRADLE_HOME ${SDK_HOME}/gradle-${GRADLE_VERSION}
+ENV PATH ${GRADLE_HOME}/bin:$PATH
 
-# download and unpack NDK
-RUN curl -sS https://dl.google.com/android/repository/android-ndk-r$NDK_VERSION-linux-x86_64.zip -o /tmp/ndk.zip \
-    && mkdir /opt/ndk \
-    && unzip -q -d /opt/ndk /tmp/ndk.zip \
-    && rm /tmp/ndk.zip
+# android sdk|build-tools|image
+ENV ANDROID_TARGET_SDK="android-32" \
+    ANDROID_BUILD_TOOLS="32.0.0" \
+    ANDROID_SDK_TOOLS="8092744" \
+    ANDROID_NDK_TOOLS="21.4.7075529" \
+    ANDROID_CMAKE_TOOLS="3.10.2"
+ENV ANDROID_SDK_URL https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_SDK_TOOLS}_latest.zip
+RUN curl -sSL "${ANDROID_SDK_URL}" -o android-sdk-linux.zip \
+    && unzip android-sdk-linux.zip -d android-sdk-linux \
+  && rm -rf android-sdk-linux.zip
+  
+# Set ANDROID_HOME
+ENV ANDROID_HOME $PWD/android-sdk-linux
+ENV PATH ${ANDROID_HOME}/bin:$PATH
 
-# Full reference at https://dl.google.com/android/repository/repository2-1.xml
-# download and unpack android
-RUN curl -sS https://dl.google.com/android/repository/${SDK_VERSION} -o /tmp/sdk.zip \
-    && mkdir /opt/android \
-    && unzip -q -d /opt/android /tmp/sdk.zip \
-    && rm /tmp/sdk.zip
+# Update and install using sdkmanager 
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} --licenses
+#RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} --update
+#RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "tools" "platform-tools" "emulator"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "tools"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "build-tools;${ANDROID_BUILD_TOOLS}"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "platforms;${ANDROID_TARGET_SDK}"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "ndk;${ANDROID_NDK_TOOLS}"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "cmake;${ANDROID_CMAKE_TOOLS}"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "extras;android;m2repository" "extras;google;google_play_services" "extras;google;m2repository"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "extras;m2repository;com;android;support;constraint;constraint-layout;1.0.2"
+RUN echo yes | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "extras;m2repository;com;android;support;constraint;constraint-layout-solver;1.0.2"
 
-RUN cd ~ && mkdir ~/.android && echo '### User Sources for Android SDK Manager' > ~/.android/repositories.cfg \
-    && yes | sdkmanager --licenses && sdkmanager --update \
-    && yes | sdkmanager "platform-tools" \
-    "emulator" \
-    "platforms;android-$ANDROID_BUILD_VERSION" \
-    "build-tools;$ANDROID_TOOLS_VERSION" \
-    "add-ons;addon-google_apis-google-23" \
-    "system-images;android-19;google_apis;armeabi-v7a" \
-    "extras;android;m2repository"
+ENV PATH ${SDK_HOME}/bin:$PATH
